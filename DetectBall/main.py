@@ -163,6 +163,7 @@ def getImage():
             while 1:
                 # Читаем ответ от Arduino через Serial порт
                 response = ser.readline()
+                #пакет должен начинаться с temp = "0 255 0 255\r\n"
                 while not checkRes(response):
                     response = ser.readline()
 
@@ -187,17 +188,19 @@ def getImage():
                     img_np = cv2.imdecode(image_np, cv2.IMREAD_GRAYSCALE)
                     findBall(img_np) #img1x  img_np
                     img_np = cv2.resize(img_np, (1600, 64))
-
+                    #читаем сериал
                     s = ser.readline().strip()
                     if s == b'camera':
-                        s = ser.readline().strip()
+                        s = ser.readline().strip() #читаем позицию, которую esp определела
                         newP = int(s.strip())
                         res = ser.readline().strip()
                         if res == b'ok':
                             pos1 = newP
                         else:
-                            cv2.circle(img2, (newP, 30), 3, (255, 255, 255), 2)
-                        cv2.circle(img2, (pos1, 30), 6, (0, 0, 0), 2)
+                            #позиция с меткой error с esp
+                            cv2.circle(img2, (newP, 30), 3, (100, 0, 0), 2)
+                        #последняя хорошая позиция OK
+                        cv2.circle(img2, (pos1, 30), 6, (255, 0, 0), 2)
                     print("pos:", pos1)
 
 

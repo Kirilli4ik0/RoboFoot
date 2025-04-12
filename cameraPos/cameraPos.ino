@@ -1,9 +1,10 @@
-#include "esp_camera.h"
+
 
 #define CAMERA_MODEL_ESP32S3_EYE  // Has PSRAM
 #include "camera_pins.h"
 
 #include <HardwareSerial.h>
+#include "readJPEG.h"
 
 
 #define numBlock 15
@@ -30,6 +31,15 @@ uint8_t* oldB;
 uint8_t* curB;
 
 
+void pD(String s) {
+  if (isDebugView) Serial.print(s);
+}
+
+void pDln(String s) {
+  if (isDebugView) Serial.println(s);
+}
+
+
 void saveOr(){
   fb = esp_camera_fb_get();
   esp_camera_fb_return(fb);
@@ -39,7 +49,7 @@ void saveOr(){
   if (!fb) {
     pDln("Camera capture failed");
   } else {
-    decode(fb, bufOld);
+    imageJPEG::decode(fb, bufOld);
   }
   esp_camera_fb_return(fb);
 }
@@ -86,6 +96,11 @@ void setup() {
     return;
   }
 
+  if (!psramFound()) {
+    delay(5000);
+    Serial.printf("Limit the frame size when PSRAM is not available");
+  }
+
   sensor_t *s = esp_camera_sensor_get();
 
   s->set_dcw(s, 0);            //    dcw = 0
@@ -121,94 +136,7 @@ void setup() {
   
 }
 
-typedef struct {
-  uint16_t width;
-  uint16_t height;
-  uint16_t data_offset;
-  const uint8_t *input;
-  uint8_t *output;
-} rgb_jpg_decoder;
 
-static unsigned int _jpg_read(void *arg, size_t index, uint8_t *buf, size_t len) {
-  rgb_jpg_decoder *jpeg = (rgb_jpg_decoder *)arg;
-  if (buf) {
-    memcpy(buf, jpeg->input + index, len);
-  }
-  return len;
-}
-
-int jpgW = 0;
-int jpgH = 0;
-static bool decode(camera_fb_t *fb, uint8_t *out_buf) {
-  //s = fmt2rgb888(fb->buf, fb->len, fb->format, out_buf);
-  rgb_jpg_decoder jpeg;
-  jpeg.width = 0;
-  jpeg.height = 0;
-  jpeg.input = fb->buf;
-  jpeg.output = out_buf;
-  jpeg.data_offset = 0;
-
-  if (esp_jpg_decode(fb->len, JPG_SCALE_NONE, _jpg_read, _rgb_write, (void *)&jpeg) != ESP_OK) {
-    return false;
-  }
-  jpgW = jpeg.width;
-  jpgH = jpeg.height;
-  return true;
-}
-#define BYTE_PIX 1
-//output buffer and image width
-static bool _rgb_write(void *arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data) {
-  rgb_jpg_decoder *jpeg = (rgb_jpg_decoder *)arg;
-  if (!data) {
-    pDln("");
-    pDln("size: " + String(x) + "_" + String(y));
-    if (x == 0 && y == 0) {
-      //write start
-      jpeg->width = w;
-      jpeg->height = h;
-      //Serial.println("");
-      //Serial.println("size: " + String(x) + "_" + String(y));
-    } else {
-      //write end
-      //Serial.println("");
-      //Serial.println("end");
-    }
-    return true;
-  }
-  //Serial.print(String(x) + "_" + String(y) + " " + String(w) + "_" + String(h) + " " + String(data[0]) + " : ");
-  size_t jw = jpeg->width * BYTE_PIX;
-  size_t t = y * jw;
-  size_t b = t + (h * jw);
-  size_t l = x * BYTE_PIX;
-  uint8_t *out = jpeg->output + jpeg->data_offset;
-  uint8_t *o = out;
-  size_t iy, ix;
-
-  w = w * BYTE_PIX;
-
-  //Serial.print("(");
-  if (y == 8) {
-    for (int i = 0; i < w; i++) {
-      out[x + i] = data[i];
-      //Serial.print(data[i]); Serial.print(" ");
-    }
-  }
-  //Serial.print(")");
-  // int tt=0;
-  // for(iy=t; iy<b; iy+=jw) {
-  //     o = out+iy+l;
-  //     for(ix=0; ix<w; ix+= BYTE_PIX) {
-  //         //o[ix] = data[ix+2];
-  //         //o[ix+1] = data[ix+1];
-  //         //o[ix+2] = data[ix];
-  //         //o[ix] = data[ix+1];
-
-  //         tt = data[ix+1];
-  //     }
-  //     data+=w;
-  // }
-  return true;
-}
 
 void calculateFPS() {
   if (iFb == 0) {
@@ -238,134 +166,39 @@ void calculateFPS() {
     esp_camera_fb_return(fb);
   }
 }
-void pD(String s) {
-  if (isDebugView) Serial.print(s);
+
+int MID_AV = 100;
+void changeAec(int mid) {
+  
+  pDln("mid  pixel = " + String(mid) + " " + String(aec));
+  if (mid<MID_AV-10 || mid>MID_AV+10) {
+
+    if (mid > MID_AV+30 ) mid = MID_AV+30;
+    else if (mid < MID_AV-30 ) mid = MID_AV-30;
+
+    sensor_t *s = esp_camera_sensor_get();
+    aec += (MID_AV - mid)*2;
+    if (aec > 1900) aec = 1900;
+    else if (aec < 300) aec = 300;
+    s->set_aec_value(s, aec);
+
+    pDln("aec=" + String(aec));
+  }
 }
 
-void pDln(String s) {
-  if (isDebugView) Serial.println(s);
-}
-
-bool calculateBall() {
-  int iP = start;
-  int sumBL = 0;
-  int numBL = 0;
-  int sect = 0;
-  int found = 0;
-  int err = 0;
-  int ballSection = -1;
-  int cur;
-
-  for (int i = 0; i <= numBlock; i++) {
-    pD(String(midBlackArr[i]) + " ");
-  }
-  pDln("");
-
-  while (iP < width) {
-    cur = buf[iP];
-    if (cur < midBlackArr[sect]) {
-      iP++;
-      if (iP % block == 0) {
-        if (numBL != 0 and ballSection != sect) {
-          midBlackArr[sect] = (int)((float)sumBL * koff / numBL);
-          pDln("sect=" + String(sect) + " new val=" + String(midBlackArr[sect]));
-          if (midBlackArr[sect] < 20) {
-            midBlackArr[sect] = 20;
-          } else if (midBlackArr[sect] > 90) {
-            midBlackArr[sect] = 90;
-          }
-        }
-        sumBL = 0;
-        numBL = 0;
-        sect = iP / block;
-      } else {
-        numBL++;
-        sumBL += cur;
-      }
-    } else {
-      int start = iP;
-      iP++;
-      cur = buf[iP];
-      while (cur >= midBlackArr[sect] and iP < width) {
-        iP++;
-        cur = buf[iP];
-        if (sect != iP / block) {
-          sumBL = 0;
-          numBL = 0;
-          sect = iP / block;
-        }
-      }
-      if (iP - start > 10) {
-        ballSection = sect;
-        found++;
-        pDln("found=" + String(found) + " pos: " + String(start) + " " + String(iP));
-        if (found > 1 and err == 0) {
-          koff += 0.1;
-          pDln("koff += 0.5 koff=" + String(koff));
-          if (koff>3) koff = 3;
-          for (int k; k < numBlock; k++) {
-            if (midBlackArr[k] < 110) {
-              midBlackArr[k] += 5;
-            }
-          }
-          iP = start;
-          sumBL = 0;
-          numBL = 0;
-          sect = 0;
-          found = 0;
-          err = 1;
-        } else {
-          int next = (iP + start) / 2;
-          if (found > 1) {
-            //found several
-            int dif1 = buf[pos] - midBlackArr[pos / block];
-            int dif2 = buf[next] - midBlackArr[next / block];
-            pDln("choose diif1=" + String(dif1) + " diff2=" + String(dif2));
-            if (dif1 < dif2)
-              pos = next;
-          } else {
-            pos = next;
-          }
-        }
-      }
-    }
-  }
-  if (found == 0) {
-    koff = 1.5;
-  }
-  return found == 1;
-}
-
-void changeAec() {
-  for (int i = 0; i <= numBlock; i++) {
-    pD(String(midBlackArr[i]) + " ");
-  }
-  pDln("");
-  int sum = 0;
-  for (int j = 0; j <= numBlock; j++) {
-    sum += midBlackArr[j];
-  }
-  int mid = sum / (numBlock + 1);
-  pDln("changeAec mid=" + String(mid) + " sum=" + String(sum));
-  if (mid < 40) {
-    aec += 20;
-    if (aec > 1000)
-      aec = 1000;
-  } else {
-    aec -= 20;
-    if (aec < 400)
-      aec = 400;
-  }
-  sensor_t *s = esp_camera_sensor_get();
-  s->set_aec_value(s, aec);
-
-  pDln("aec=" + String(aec));
-}
+int averPixel = 0;
 bool getMaxDif(){
   int m = 0;
   int cur = 0;
   int a = 0;
-  for (int i=20; i<780; i++){
+
+  long midPixel = 0;
+  int avC=0;
+  for (int i=20; i<=780; i++){
+      if (i%10 == 0) {
+        midPixel+=curB[i];
+        avC ++;
+      }
       a = curB[i] - oldB[i];
       if (a > m) {
         cur = i;
@@ -375,13 +208,15 @@ bool getMaxDif(){
   if (cur>0){
     pos = cur;
   }
+
+  averPixel = midPixel/avC;
   Serial.print(" d:" + String(curB[pos] - oldB[pos]));
   return curB[pos] - oldB[pos]>20;
 }
 
 bool sw = true;
 
-void swiitchBuf(){
+void switchBuf(){
   if (sw){
     oldB = bufOld;
     curB = buf;
@@ -392,20 +227,32 @@ void swiitchBuf(){
   sw = !sw;
 }
 
+int c = 0;
 void loop() {
-  swiitchBuf();
+  switchBuf();
   //Take Picture with Camera
   unsigned long tf = millis();
   fb = esp_camera_fb_get();
+  c++;
   if (!fb) {
     pDln("Camera capture failed");
+    delay(5000);
   } else {
 
-    decode(fb, curB);
+    imageJPEG::decode(fb, curB);
     //bool res = calculateBall();
     bool res = getMaxDif();
-    if (!res) {
-      changeAec();
+
+    //if(c > 2) 
+    {
+      int av = MID_AV;
+      if (imageJPEG::midCount>0)
+        av = imageJPEG::mid/imageJPEG::midCount;
+      //if (!res) 
+      {
+        changeAec(av);
+      }
+      c = 0;
     }
 
     if (isDebugView) {
