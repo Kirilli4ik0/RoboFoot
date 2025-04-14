@@ -5,21 +5,14 @@
 #include <HardwareSerial.h>
 #include "readJPEG.h"
 
-
-#define numBlock 15
-byte midBlackArr[numBlock + 1];  // = [60]*(numBlock+1)
-float koff = 1.5;
-int width = 780;
-int start = 20;
-int block = width / numBlock;
-int line = 8;  // #8+16 #8 # 67
+//---KKK------------------------------------------------------------------
+bool isDebugView = false;
 
 uint8_t buf[800];
 int pos = 0;
 int diff = 0;
 int aec = 600;
-bool isDebugView = false;
-
+int gain = 64;
 
 int iFb = 0;
 unsigned long t = 0;
@@ -55,9 +48,6 @@ void saveOr(){
 }
 
 void setup() {
-  for (int i = 0; i < numBlock + 1; i++) {
-    midBlackArr[i] = 60;
-  }
 
   Serial.begin(115200);
 
@@ -119,9 +109,9 @@ void setup() {
   s->set_hmirror(s, 1);
 
 
-  //KKKKKKKKKK ===================================================
-  //int res = s->set_res_raw(s, 0, 940, 2560, 988, 0, 0, 2644, 1000, 800, 16, true, true);///LL  S2!!!!
-  int res = s->set_res_raw(s, 0, 900+10, 2560, 948+10, 0, 0, 2644, 1000, 800, 16, true, true);//RR S3!!!!
+  //KKK ===================================================
+  int res = s->set_res_raw(s, 0, 940, 2560, 988, 0, 0, 2644, 1000, 800, 16, true, true);///LL  S2!!!!
+  //int res = s->set_res_raw(s, 0, 900+10, 2560, 948+10, 0, 0, 2644, 1000, 800, 16, true, true);//RR S3!!!!
   Serial.println(res);
   delay(500);
   
@@ -158,7 +148,7 @@ void calculateFPS() {
   }
 }
 
-int MID_AV = 100;
+int MID_AV = 95;
 void changeAec(int mid) {
   
   pDln("mid  pixel = " + String(mid) + " " + String(aec));
@@ -169,8 +159,8 @@ void changeAec(int mid) {
 
     sensor_t *s = esp_camera_sensor_get();
     aec += (MID_AV - mid)*2;
-    if (aec > 1900) aec = 1900;
-    else if (aec < 300) aec = 300;
+    if (aec > 1900) {aec = 1900; gain=64; s->set_agc_gain(s, gain); }
+    else if (aec < 300) {aec = 300;  gain-=5; s->set_agc_gain(s, gain);  }//??? agc = 64
     s->set_aec_value(s, aec);
 
     //Serial.print(" m=" +String(mid)+ " aec=" + String(aec));
@@ -201,9 +191,9 @@ bool getMaxDif(){
   }
 
   averPixel = midPixel/avC;
-  //Serial.print(" d_" + String());
   diff = curB[pos] - oldB[pos];
-  return diff>25;
+  //Serial.print(" d_" + String(diff));
+  return diff>20;
 }
 
 bool sw = true;

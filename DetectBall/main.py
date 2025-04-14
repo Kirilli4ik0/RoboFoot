@@ -43,8 +43,8 @@ def getImage():
             #s2!!!!
             #ser = serial.Serial('/dev/cu.wchusbserial57340449801', 115200)
             #s3!!!!
-            #ser = serial.Serial('/dev/cu.wchusbserial57340450811', 115200)
-            ser = serial.Serial('/dev/cu.wchusbserial57350018291', 115200) #s2
+            ser = serial.Serial('/dev/cu.wchusbserial57340450811', 115200)
+            #ser = serial.Serial('/dev/cu.wchusbserial57350018291', 115200) #s2
             while 1:
                 # Читаем ответ от Arduino через Serial порт
                 response = ser.readline()
@@ -76,10 +76,13 @@ def getImage():
                     cv2.line(img_np, (20*2, 16), (780*2, 16), (255, 255, 255), 1)
                     #читаем сериал
                     s = ser.readline().strip()
-                    if s == b'camera':
+                    par = s.split()
+                    print(par)
+                    if par[0] == b'camera':
                         s = ser.readline().strip() #читаем позицию, которую esp определела
-                        newP = int(s.strip())
-                        res = ser.readline().strip()
+                        newP = int(par[1])
+                        print("diff:" + str(par[2]))
+                        res = par[3].strip()
                         if res == b'ok':
                             pos1 = newP
                         else:

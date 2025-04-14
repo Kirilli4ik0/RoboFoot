@@ -163,17 +163,18 @@ Motor mot2B(A10, A11, 8, &cnt4, 26, 0);  //M3 round  vorota
 //------------------------------  -------------------------------------------------------------------
 
 void movePos(float pos) {
-  int offs1 = 110;
+  int offs1 = 120;
   int offs2 = 220;
 
-  if (pos > offs2) pos = map(constrain(pos, 0, 110), 0, 110, 0, 57);
-  else if (pos > offs1) pos = map(constrain(pos, 110, 220), 110, 220, 0, 57);
-  else pos = map(constrain(pos, 220, 330), 220, 330, 0, 57);
+  if (pos > offs2) pos = map(constrain(pos+10, offs2, 300), offs2, 300, 0, 57);
+  else if (pos > offs1) pos = map(constrain(pos, offs1, offs2), offs1, offs2, 0, 57);
+  else pos = map(constrain(pos-20, 0, offs1), 0, offs1, 0, 57);
 
   // Serial.println("movePos1 " + String(pos));
   mot1A.tar = pos;
 }
 
+//вротарь
 void movePos2(float pos) {
   //pos *= 5.6;
   // pos = min(80, max(50, pos));
@@ -196,6 +197,7 @@ void setupCoeficients() {
 
 
 void checkSerial() {
+  delay(50);
   String s = "check Serail S3: ";
   int av = 0;
   while (Serial3.available() > 0) {
@@ -225,8 +227,9 @@ int x = 0;
 int y = 0;
 
 
-void readPos() {
+void readPos(int minD) {
   delay(5);
+  int tD=0;
   //Serial.println("check Serail");
   String s = "";
   while (Serial2.available() > 0) {
@@ -243,8 +246,9 @@ void readPos() {
       int spacePos2 = s.indexOf(' ', spacePos1 + 1);
       if (spacePos1 != -1) {
         err_x = s.substring(spacePos2 + 1) != "ok";
-        if (!err_x) {
-          diff_x = s.substring(spacePos1 + 1, spacePos2).toInt();
+        tD = s.substring(spacePos1 + 1, spacePos2).toInt();
+        if (!err_x && tD>minD) {
+          diff_x = tD;
           pos_x = s.substring(7, spacePos1).toInt();
         }
       }
@@ -270,8 +274,9 @@ void readPos() {
       int spacePos2 = s.indexOf(' ', spacePos1 + 1);
       if (spacePos1 != -1) {
         err_y = s.substring(spacePos2 + 1) != "ok";
-        if (!err_y) {
-          diff_y = s.substring(spacePos1 + 1, spacePos2).toInt();
+        tD = s.substring(spacePos1 + 1, spacePos2).toInt();
+        if (!err_y && tD>minD) {
+          diff_y = tD;
           pos_y = s.substring(7, spacePos1).toInt();
         }
       }
@@ -298,21 +303,23 @@ void calculate(float pos1, float pos2) {
 
 
 void correctInitPosMA(class Motor& mot) {
-  mot.move(-70);
+
+  mot.move(-50);
   while (digitalRead(mot.pinEnd) == 1) {}
+  mot.move(0);
   *mot.cnt = mot.offset;
   Serial.println("Offset = " + String(mot.offset));
-  mot.move(0);
+
   delay(300);
 
-  mot.move(70);
+  mot.move(50);
   while (digitalRead(mot.pinEnd) == 0) {}
-  Serial.println("Offset = " + String(mot.offset));
   mot.move(0);
+  Serial.println("correctInitPosMA END");
   delay(300);
 }
 
-void testTOFiindOffser(class Motor& mot) {
+void testTOFindOffser(class Motor& mot) {
   mot.move(-50);
   delay(1000);
   mot.move(0);
@@ -330,6 +337,7 @@ void setup() {
   //S3 - 15 pin serial; R6 Hall(D26 pin)
   //S2 - 17 PIN serial; R5 Hall(D27 pin)
   pinMode(28, INPUT);
+  pinMode(29, INPUT);
   pinMode(27, INPUT_PULLUP);
   pinMode(26, INPUT_PULLUP);
 
@@ -342,39 +350,29 @@ void setup() {
   setupCoeficients();
   setupEncoders();
 
-  // mot2B.move(-200);
-  // mot1B.move(-200);
-
-  // delay(1500);
-
-  // mot1B.move(-255);
-
   //move to see offset
-  //testTOFiindOffser(mot1A);
+  //testTOFindOffser(mot1A);
+
+  //test line sensors!
+    // while(1){
+    //   Serial.print(digitalRead(mot2A.pinEnd)); 
+    //   Serial.print(digitalRead(mot1A.pinEnd)); 
+    //   delay(1000);
+    // }
 
   //correct positopn end
   correctInitPosMA(mot2A);
   correctInitPosMA(mot1A);
 
-  // mot2B.move(-255);
-  // delay(5000);
-
-  // while (digitalRead(mot2A.pinEnd)==0){}
-  // Serial.println(2);
-  // mot2A.move(0);
-  // mot2A.offset = *mot2A.cnt;
-  // delay(5000);
-
-  // delay(5000);
   // Serial.println(String(cnt1) + " " + String(cnt2) + " " + String(cnt3) + " " + String(cnt4) + " ");
   // delay(100009);
 
   // mot2A.tar = 30;
   // mot2B.tar = 3;
   // mot1B.tar = 0;
-
-
   // mot1B.tar = 0;
+
+
   Serial.println("end setup");
 }
 
@@ -401,31 +399,9 @@ int prev_y;
 
 Timer serialRead(20);
 
+void handleStateMot(){
 
-void loop() {
-  // Serial.println(digitalRead(20));
-  // return;
-  //checkSerial();
-
-  if (serialRead) {
-    prev_x = pos_x;
-    prev_y = pos_y;
-    readPos();
-    if (pos_x != prev_x || prev_y != pos_y) {
-      if (pos_x != 304)  //какая-то глючная точка!! надо посмотреть на месте с освещением
-        calculate(pos_x, pos_y);
-      // Serial.print(2);
-    }
-  }
-
-
-
-  // delay(200);
-  mot1A.tick();
-  mot2A.tick();
-  movePos2(y);
-  movePos(y);
-
+  //вратарь
   if (x > 270) {
     if (*mot2B.cnt < 0) mot2B.move(80);
     else if (*mot2B.cnt > 0) mot2B.move(-80);
@@ -447,17 +423,17 @@ void loop() {
   //movePos(((long)millis() - 5000) / 100); move horisontally
   //return;
 
-  if (x < 210 && x > 140) {
-    state = 0;
-    x = 0;
-  }
+
 
   mot1B.recalcPos();
-  if (state == 0) {  // start punch
-    mot1B.move(255);
-    stop.reset();
-    state = 0.5;
-  }
+   //обратно в луп если не хочу постоянно вертеть
+    if (state == 0) {  // start punch
+      mot1B.move(255);
+      stop.reset();
+      state = 0.5;
+    }
+    
+  
   if (state == 0.5 && stop) state = 1;  // wait for punch
   if (state == 1 && stopPWM) {
     if (stopCnt == 80) {  // stopping
@@ -477,6 +453,40 @@ void loop() {
   if (state == 2) {  // move to vertical poition
     // Serial.println(*mot1B.cnt - mot1B.tar);
     mot1B.tick();
+      //сброс чтоб не били пока новый кадр не придет
+    if (x < 210 && x > 140) {
+      state = 0;
+      x = 0;
+    }
     // if (punch) state = 0;
   }
+}
+
+void loop() {
+  // Serial.println("loop");
+  
+  // checkSerial();
+  // return;
+
+  if (serialRead) {
+    prev_x = pos_x;
+    prev_y = pos_y;
+    //-------KKKK ----------- если ярко то 70/ если темно то 25 
+    readPos(70);
+    if (pos_x != prev_x || prev_y != pos_y) {
+      if (pos_x != 304)  //какая-то глючная точка!! надо посмотреть на месте с освещением
+        calculate(pos_x, pos_y);
+      // Serial.print(2);
+    }
+  }
+
+  // delay(200);
+
+  //слежение за мячем вправо-влево
+  mot1A.tick();
+  mot2A.tick();
+  movePos2(y);//вратарь
+  movePos(y);//нападающие
+
+  handleStateMot();
 }
