@@ -1,5 +1,4 @@
 
-
 #define CAMERA_MODEL_ESP32S3_EYE  // Has PSRAM
 #include "camera_pins.h"
 
@@ -17,8 +16,9 @@ int line = 8;  // #8+16 #8 # 67
 
 uint8_t buf[800];
 int pos = 0;
+int diff = 0;
 int aec = 600;
-bool isDebugView = true;
+bool isDebugView = false;
 
 
 int iFb = 0;
@@ -118,19 +118,10 @@ void setup() {
   s->set_vflip(s, 0);
   s->set_hmirror(s, 1);
 
-  //camera_sensor_info_t *info = esp_camera_sensor_get_info(&s->id);
-  //Serial.print("Detected camera ");
-  //Serial.print(info->name);Serial.print(" pid=");Serial.println(s->id.PID);
 
-  //Set Window: Start: 0 900, End: 2623 1200, Offset: 16 4, Total: 2844 1968, Output: 800 100, Scale: 1, Binning: 0
-  //GOOD!!!!
-  //int res = s->set_res_raw(s, 0, 0, 2623, 1951, 32, 16, 2844, 1968, 800, 600, false, false);
-  //int ret = s->set_pll(s, false, 10, 1, 2, false, 1, true, 2);
-
-  //int res = s->set_res_raw(s, 0, 750, 2560, 1050, 0, 0, 2644, 1200, 800, 96, true, true); GOOD !!!
-  //KKKKKKKKKK
-  int res = s->set_res_raw(s, 0, 940, 2560, 988, 0, 0, 2644, 1000, 800, 16, true, true);///LL  S2!!!!
-  //int res = s->set_res_raw(s, 0, 900, 2560, 948, 0, 0, 2644, 1000, 800, 16, true, true);//RR S3!!!!
+  //KKKKKKKKKK ===================================================
+  //int res = s->set_res_raw(s, 0, 940, 2560, 988, 0, 0, 2644, 1000, 800, 16, true, true);///LL  S2!!!!
+  int res = s->set_res_raw(s, 0, 900+10, 2560, 948+10, 0, 0, 2644, 1000, 800, 16, true, true);//RR S3!!!!
   Serial.println(res);
   delay(500);
   
@@ -182,7 +173,7 @@ void changeAec(int mid) {
     else if (aec < 300) aec = 300;
     s->set_aec_value(s, aec);
 
-    pDln("aec=" + String(aec));
+    //Serial.print(" m=" +String(mid)+ " aec=" + String(aec));
   }
 }
 
@@ -210,8 +201,9 @@ bool getMaxDif(){
   }
 
   averPixel = midPixel/avC;
-  Serial.print(" d:" + String(curB[pos] - oldB[pos]));
-  return curB[pos] - oldB[pos]>20;
+  //Serial.print(" d_" + String());
+  diff = curB[pos] - oldB[pos];
+  return diff>25;
 }
 
 bool sw = true;
@@ -269,12 +261,11 @@ void loop() {
       //Serial.print(fb->width);Serial.print(" ");Serial.println(fb->height);//Serial.println("5 5");//
       Serial.write((byte *)fb->buf, fb->len);  //Serial.write((byte*)fb->buf, 25);//
     }
-    
-    // delayMicroseconds(10);
-    Serial.println("camera");
-    Serial.println(pos);
-    if (res != true) Serial.println("error");
-    else Serial.println("ok");
+
+    if (res) {
+      //Serial.println("");
+      Serial.println("camera " +  String(pos) + " " + String(diff) + " ok");
+    }
 
     //if (res != true) Serial.print(" e " + String(pos) );
     //else  {Serial.println("");Serial.println(" !!! " + String(pos) );}

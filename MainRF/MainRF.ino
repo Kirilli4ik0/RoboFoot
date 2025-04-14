@@ -49,7 +49,7 @@ void setupEncoders() {
   pinMode(38, INPUT);
   pinMode(36, INPUT);
   pinMode(A2, INPUT);
-  pinMode(A3, INPUT);
+  pinMode(A1, INPUT);
 
   pinMode(2, INPUT);
   pinMode(3, INPUT);
@@ -63,35 +63,56 @@ void setupEncoders() {
 }
 Timer print(50);
 
-struct Motor {
+class Motor {
+public:
   const int portA, portB, portPWM;
   int tar;
   volatile int* cnt;
 
-  float Kp = 25;
+  float Kp = 5;
   float Kd = 0;
-  float Ki = 0.5;
+  float Ki = 0.1;
   float integral = 0;
   float derivative = 0;
   int difLst = 0;
 
+  int offset = 0;
+  bool lastEnd = false;
+  int pinEnd;
 
   Timer compoundTimer{ 20 };
 
-  Motor(int portA, int portB, int portPWM, volatile int* cnt)
-    : portA(portA), portB(portB), portPWM(portPWM), cnt(cnt) {
+  Motor(Motor&) = delete;
+  void operator=(Motor&) = delete;
+
+  Motor(int portA, int portB, int portPWM, volatile int* cnt, int pinEnd, int offset)
+    : portA(portA), portB(portB), portPWM(portPWM), cnt(cnt), offset(offset), pinEnd(pinEnd) {
     pinMode(portA, OUTPUT);
     pinMode(portB, OUTPUT);
     pinMode(portPWM, OUTPUT);
+    pinMode(pinEnd, INPUT);
   }
 
   void move(int spd) {
     digitalWrite(portA, spd > 0);
     digitalWrite(portB, spd < 0);
-    analogWrite(portPWM, min(abs(spd), 255));
+    if (spd != 0)
+      spd = abs(spd) + 125;
+    analogWrite(portPWM, min(spd, 255));
+  }
+
+  void recalcPos() {
+    bool curEnd = digitalRead(pinEnd);
+    if (lastEnd != curEnd) {
+      Serial.println("END corrected from " + String(*cnt) + " to " + String(offset));
+      *cnt = offset;
+    }
+    lastEnd = curEnd;
   }
 
   void tick() {
+    recalcPos();
+
     if (compoundTimer) {
       // Serial.println(*cnt - tar);
 
@@ -102,8 +123,19 @@ struct Motor {
 
       float currKd = Kd;  // * (1 - min(1,abs(dif)/50));
 
-      move(dif * Kp + Ki * integral + currKd * derivative);
+      integral = constrain(integral, -1000, 1000);
 
+      if (abs(dif) <= 1 && derivative < 0.2)
+        move(0);
+      else
+        move(dif * Kp + Ki * integral + currKd * derivative);
+
+
+      // if (dif < 0)
+      //   move(-50);
+      // else if (dif > 0)
+      //   move(50);
+      // else move(0);
       // if (print && millis() < 5000) {
       //   Serial.print(*cnt);
       //   Serial.print(" ");
@@ -122,30 +154,34 @@ struct Motor {
   }
 };
 
-Motor mot1A(41, 40, 6, &cnt1);  //M1 side
-Motor mot1B(42, 43, 7, &cnt2);  //M2 fw
+//-------------------------------------------------------------------------------------------------
+Motor mot1A(41, 40, 6, &cnt1, 30, 12);  //M2 side
+Motor mot1B(42, 43, 7, &cnt2, 27, 0);   //M1 round
 
-Motor mot2A(A5, A4, 4, &cnt3);    //M3 side
-Motor mot2B(A10, A11, 8, &cnt4);  //M4 fw
-
+Motor mot2A(A5, A4, 4, &cnt3, 29, 13);   //M4 side  vorota
+Motor mot2B(A10, A11, 8, &cnt4, 26, 0);  //M3 round  vorota
+//------------------------------  -------------------------------------------------------------------
 
 void movePos(float pos) {
-  pos *= 5.6;
-  pos = min(150, max(0, pos));
-  int offs1 = 50;
-  int offs2 = 100;
+  int offs1 = 110;
+  int offs2 = 220;
 
-  if (pos > offs2) pos -= offs2;
-  else if (pos > offs1) pos -= offs1;
+  if (pos > offs2) pos = map(constrain(pos, 0, 110), 0, 110, 0, 57);
+  else if (pos > offs1) pos = map(constrain(pos, 110, 220), 110, 220, 0, 57);
+  else pos = map(constrain(pos, 220, 330), 220, 330, 0, 57);
 
+  // Serial.println("movePos1 " + String(pos));
   mot1A.tar = pos;
 }
 
 void movePos2(float pos) {
-  pos *= 5.6;
-  pos = min(100, max(50, pos));
+  //pos *= 5.6;
+  // pos = min(80, max(50, pos));
 
-  mot2A.tar = pos - 50;
+  pos = map(constrain(pos, 120, 200), 120, 200, 0, 57);
+
+  //Serial.println("movePos2 " + String(pos));
+  mot2A.tar = pos;
 }
 
 void setupCoeficients() {
@@ -158,22 +194,22 @@ void setupCoeficients() {
   mot2B.Ki = 0.1;
 }
 
-bool isCameraView = false;
-
 
 void checkSerial() {
-  String s = "S3:";
-  Serial.println("check Serail");
+  String s = "check Serail S3: ";
+  int av = 0;
   while (Serial3.available() > 0) {
     s += (char)Serial3.read();
+    av++;
   }
-  Serial.println(s);
-  s = "S2:";
-  Serial.println("check Serail");
+  if (av > 0) Serial.println(s);
+  s = "check Serail S2: ";
+  av = 0;
   while (Serial2.available() > 0) {
     s += (char)Serial2.read();
+    av++;
   }
-  Serial.println(s);
+  if (av > 0) Serial.println(s);
 }
 
 int pos_x = 0;
@@ -182,7 +218,15 @@ int pos_y = 0;
 bool err_x = true;
 bool err_y = true;
 
-int checkPos() {
+int diff_x = true;
+int diff_y = true;
+
+int x = 0;
+int y = 0;
+
+
+void readPos() {
+  delay(5);
   //Serial.println("check Serail");
   String s = "";
   while (Serial2.available() > 0) {
@@ -191,18 +235,25 @@ int checkPos() {
       s += c;
   }
   s.trim();
-  //Serial.println("S2---" + s);
+  //if (s.length()>0) Serial.println("S2---" + s);
   if (s.substring(0, 6) == "camera" && s.length() > 8) {
-    int spacePos = s.indexOf('\n', 8);
-    if (spacePos != -1) {
-      err_x = (s.substring(spacePos + 1) != "ok");
-      // if (!err_x)
-      pos_x = (pos_x * 9 + s.substring(8, spacePos).toInt()) / 10;
+    //Serial.println("S2---" + s);
+    int spacePos1 = s.indexOf(' ', 7);
+    if (spacePos1 != -1) {
+      int spacePos2 = s.indexOf(' ', spacePos1 + 1);
+      if (spacePos1 != -1) {
+        err_x = s.substring(spacePos2 + 1) != "ok";
+        if (!err_x) {
+          diff_x = s.substring(spacePos1 + 1, spacePos2).toInt();
+          pos_x = s.substring(7, spacePos1).toInt();
+        }
+      }
+      //Serial.println("pos_x=" + String(pos_x) + "err= " + String(err_x));
+      //pos_x = (pos_x * 9 + s.substring(8, spacePos).toInt()) / 10;
     }
-  } else if (s.length() > 0)
-    ;
-  // Serial.println("cam1" + s + "!");
-  // Serial.println("S2---" + String(err_x) + " " + String(pos_x));
+  }
+  //Serial.println("cam1" + s + "!");
+  //Serial.println("S2---" + String(err_x) + " " + String(pos_x));
 
   s = "";
   while (Serial3.available() > 0) {
@@ -211,72 +262,112 @@ int checkPos() {
       s += c;
   }
   s.trim();
+  //if (s.length()>0) Serial.println("S3---" + s);
   if (s.substring(0, 6) == "camera" && s.length() > 8) {
-    int spacePos = s.indexOf('\n', 8);
-    if (spacePos != -1) {
-      err_y = (s.substring(spacePos + 1) != "ok");
-      // if (!err_y)
-      pos_y = (pos_y * 9 + s.substring(8, spacePos).toInt()) / 10;
+    //Serial.println("S3---" + s);
+    int spacePos1 = s.indexOf(' ', 7);
+    if (spacePos1 != -1) {
+      int spacePos2 = s.indexOf(' ', spacePos1 + 1);
+      if (spacePos1 != -1) {
+        err_y = s.substring(spacePos2 + 1) != "ok";
+        if (!err_y) {
+          diff_y = s.substring(spacePos1 + 1, spacePos2).toInt();
+          pos_y = s.substring(7, spacePos1).toInt();
+        }
+      }
+      //pos_y = (pos_y * 9 + s.substring(8, spacePos).toInt()) / 10;
     }
-    // Serial.println("cam2!");
-  } else if (s.length() > 0)
-    ;
-  // Serial.println("cam2" + s + "!");
+  }
+  //Serial.println("cam2" + s + "!");
 }
 
-int glPx;
-
-void calculate(float pos1, float pos2) {  // pos1 = pos2 = 400;
-  Serial.println("calculate " + String(pos1) + " " + String(pos2));
-  float Ga = 90.0 - pos1 * 0.113;  //90/800
-  float Gb = pos2 * 0.113;
-  float Gc = 180.0 - Ga - Gb;
-  // Serial.println(String(Ga) + " " + String(Gb) + " " + String(Gc));
+void calculate(float pos1, float pos2) {
+  float add = 1;
+  float a = (90 - (pos1 / add) * 90 / 800);
+  float b = (pos2 * add) * 90 / 800;
+  a = a * DEG_TO_RAD;
+  b = b * DEG_TO_RAD;
   float c = 470;
-  Ga = sin(Ga * DEG_TO_RAD);
-  Gc = sin(Gc * DEG_TO_RAD);
-  Gb = sin(Gb * DEG_TO_RAD);
-  // Serial.println(String(Ga) + " " + String(Gb) + " " + String(Gc));
-  float a = sin(Ga * DEG_TO_RAD) * c / sin(Gc * DEG_TO_RAD);
-  float b = sin(Gb * DEG_TO_RAD) * c / sin(Gc * DEG_TO_RAD);
-  //Serial.println(String(a) + " " + String(b) + " " + String(c) );
-  float pp = (a + b + c) / 2;
-  float ss = sqrt(pp * (pp - a) * (pp - b) * (pp - c));
-  int x = (int)(2 * ss / c);    //mm
-  int y = sqrt(b * b - x * x);  //mm
-  glPx = x;
-  Serial.println(String(x) + " " + String(y));
+
+  float xT = c * tan(b) / (tan(a) + tan(b));  //mm
+  float yT = xT * tan(a);                     //mm
+  x = xT;
+  y = yT;
+  Serial.println("calculate: " + String(pos_x) + "(" + String(diff_x) + "):" + String(pos_y) + "(" + String(diff_x) + ") >>>  " + String(x) + ":" + String(y));
+}
+
+
+void correctInitPosMA(class Motor& mot) {
+  mot.move(-70);
+  while (digitalRead(mot.pinEnd) == 1) {}
+  *mot.cnt = mot.offset;
+  Serial.println("Offset = " + String(mot.offset));
+  mot.move(0);
+  delay(300);
+
+  mot.move(70);
+  while (digitalRead(mot.pinEnd) == 0) {}
+  Serial.println("Offset = " + String(mot.offset));
+  mot.move(0);
+  delay(300);
+}
+
+void testTOFiindOffser(class Motor& mot) {
+  mot.move(-50);
+  delay(1000);
+  mot.move(0);
+  delay(1000);
+  *mot.cnt = -5;
+  for (int i = 0; i < 20; i++) {
+    Serial.println(*mot.cnt);
+    delay(1000);
+  }
+  delay(10000);
 }
 
 void setup() {
+
+  //S3 - 15 pin serial; R6 Hall(D26 pin)
+  //S2 - 17 PIN serial; R5 Hall(D27 pin)
+  pinMode(28, INPUT);
+  pinMode(27, INPUT_PULLUP);
+  pinMode(26, INPUT_PULLUP);
+
   delay(1000);
   Serial3.begin(115200);
   Serial2.begin(115200);
   Serial.begin(115200);
   delay(1000);
 
-  if (isCameraView) {
-    Serial3.println("debug");
-    Serial2.println("debug");
-  } else {
-    Serial3.println("rel");
-    Serial2.println("rel");
-  }
   setupCoeficients();
   setupEncoders();
 
   // mot2B.move(-200);
   // mot1B.move(-200);
 
-  delay(1500);
-  mot2A.move(-255);
-  mot1A.move(-255);
-  delay(800);
-  *mot1A.cnt = 0;
-  *mot2A.cnt = 0;
-  mot1A.move(0);
-  mot2A.move(0);
-  // // delay(1000);
+  // delay(1500);
+
+  // mot1B.move(-255);
+
+  //move to see offset
+  //testTOFiindOffser(mot1A);
+
+  //correct positopn end
+  correctInitPosMA(mot2A);
+  correctInitPosMA(mot1A);
+
+  // mot2B.move(-255);
+  // delay(5000);
+
+  // while (digitalRead(mot2A.pinEnd)==0){}
+  // Serial.println(2);
+  // mot2A.move(0);
+  // mot2A.offset = *mot2A.cnt;
+  // delay(5000);
+
+  // delay(5000);
+  // Serial.println(String(cnt1) + " " + String(cnt2) + " " + String(cnt3) + " " + String(cnt4) + " ");
+  // delay(100009);
 
   // mot2A.tar = 30;
   // mot2B.tar = 3;
@@ -284,40 +375,84 @@ void setup() {
 
 
   // mot1B.tar = 0;
+  Serial.println("end setup");
 }
 
 Timer punch(4000);
 
 Timer stop(300);
 
-float state = 4;
+float state = 2;
 
 Timer stopPWM(1);
 int stopCnt = 0;
 
 
+int prev_x;
+int prev_y;
 
+
+// void loop2() {
+//   delay(30);
+//   //movePos2 (100);
+//   mot2A.tick();
+//   Serial.println(String(cnt1) + " " + String(cnt2) + " " + String(cnt3) + " " + String(cnt4) + " ");
+// }
+
+Timer serialRead(20);
 
 
 void loop() {
+  // Serial.println(digitalRead(20));
+  // return;
   //checkSerial();
-  checkPos();
-  // Serial.println("err:" + String(err_x) + " " + String(err_y));
-  //if (!err_x && !err_y)
-  calculate(pos_x, pos_y);
+
+  if (serialRead) {
+    prev_x = pos_x;
+    prev_y = pos_y;
+    readPos();
+    if (pos_x != prev_x || prev_y != pos_y) {
+      if (pos_x != 304)  //какая-то глючная точка!! надо посмотреть на месте с освещением
+        calculate(pos_x, pos_y);
+      // Serial.print(2);
+    }
+  }
+
+
+
+  // delay(200);
   mot1A.tick();
   mot2A.tick();
-  // mot2B.tick();.
-  mot1B.tick();
-  // movePos(((long)millis() - 5000) / 100);
-  movePos((glPx - 30) / 5 * 3);
-  movePos2((glPx - 30) / 5 * 3);
-  Serial.println((glPx - 30) / 5 * 3);
-  delay(20);
-  return;
+  movePos2(y);
+  movePos(y);
+
+  if (x > 270) {
+    if (*mot2B.cnt < 0) mot2B.move(80);
+    else if (*mot2B.cnt > 0) mot2B.move(-80);
+  } else mot2B.move(0);
+  //Serial.println(*mot2B.cnt);
+
+  mot2B.recalcPos();
+
+  // Serial.println(*mot2A.cnt);
+  // // mot2B.tick();.
+  // mot1B.tick();
+  // // movePos(((long)millis() - 5000) / 100);
+  // mot2A.tar = y/10;
+  // movePos2((glPx - 30) / 5 * 3);
+  // Serial.println((glPx - 30) / 5 * 3);
+  // delay(20);
+  // return;
   //mot1A.tick(); // hold position
   //movePos(((long)millis() - 5000) / 100); move horisontally
   //return;
+
+  if (x < 210 && x > 140) {
+    state = 0;
+    x = 0;
+  }
+
+  mot1B.recalcPos();
   if (state == 0) {  // start punch
     mot1B.move(255);
     stop.reset();
@@ -330,7 +465,8 @@ void loop() {
       state = 2;
       punch.reset();
       mot1B.move(0);
-      mot1B.tar = *mot1B.cnt + 60 - ((*mot1B.cnt + 60) % 45);  // put vertical target
+      *mot1B.cnt += 45;
+      mot1B.tar = 0;  //*mot1B.cnt + 60 - ((*mot1B.cnt + 60) % 45);  // put vertical target
     } else {
       if (stopCnt % 2 == 0) mot1B.move(255);
       else mot1B.move(-255);
@@ -339,8 +475,8 @@ void loop() {
   }
 
   if (state == 2) {  // move to vertical poition
-    Serial.println(*mot1B.cnt - mot1B.tar);
+    // Serial.println(*mot1B.cnt - mot1B.tar);
     mot1B.tick();
-    if (punch) state = 0;
+    // if (punch) state = 0;
   }
 }
