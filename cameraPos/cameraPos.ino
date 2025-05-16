@@ -107,11 +107,21 @@ void setup() {
 
   s->set_vflip(s, 0);
   s->set_hmirror(s, 1);
+  //old camera
+  //s->set_vflip(s, 1);
+  //s->set_hmirror(s, 0);
+
+  //int res = s->set_res_raw(s, 0, 940, 2560, 988, 0, 0, 2644, 1000, 800, 16, true, true);///LL  S2!!!!
+  //int res = s->set_res_raw(s, 0, 900+10, 2560, 948+10, 0, 0, 2644, 1000, 800, 16, true, true);//RR S3 old
 
 
+  int h = 16;//64;//16;
   //KKK ===================================================
-  int res = s->set_res_raw(s, 0, 940, 2560, 988, 0, 0, 2644, 1000, 800, 16, true, true);///LL  S2!!!!
-  //int res = s->set_res_raw(s, 0, 900+10, 2560, 948+10, 0, 0, 2644, 1000, 800, 16, true, true);//RR S3!!!!
+  int up = 930;//s2
+
+  //s3  new
+  //int up = 940 - 35;//s3
+  int res = s->set_res_raw(s, 0, up, 2560, up+3*h, 0, 0, 2644, up+3*h+20, 800, h, true, true);
   Serial.println(res);
   delay(500);
   
@@ -148,7 +158,7 @@ void calculateFPS() {
   }
 }
 
-int MID_AV = 95;
+int MID_AV = 85;//95
 void changeAec(int mid) {
   
   pDln("mid  pixel = " + String(mid) + " " + String(aec));
@@ -193,6 +203,27 @@ bool getMaxDif(){
   averPixel = midPixel/avC;
   diff = curB[pos] - oldB[pos];
   //Serial.print(" d_" + String(diff));
+
+  //center ball
+  if (diff>20){
+    int t = pos;
+    int c = curB[t];
+    while (curB[t] >= c - diff/2 && t > 2) {
+        if (curB[t] > c)
+            c = curB[t];
+        t -= 2;
+    }
+    int minC = t;
+    t = pos;
+    while (curB[t] >= c - diff/2 && t < 780){
+        if (curB[t] > c)
+            c = curB[t];
+        t += 2;
+    }
+    int maxC = t;
+    pos = (minC + maxC)/2;
+  }
+
   return diff>20;
 }
 
