@@ -534,7 +534,7 @@ void handleStateMot(){
     // Serial.println(*mot1B.cnt - mot1B.tar);
     mot1B.tick();
       //сброс чтоб не били пока новый кадр не придет
-    if (x < 170 && x > 115) {
+    if (x < 200 && x > 115) {
       state = 0;
       x = 0;
     }
